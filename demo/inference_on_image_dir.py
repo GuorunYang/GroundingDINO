@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import pickle as pkl
 
 import numpy as np
 import torch
@@ -13,6 +14,7 @@ from groundingdino.util.slconfig import SLConfig
 from groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
 from groundingdino.util.vl_utils import create_positive_map_from_span
 
+from tqdm import tqdm
 
 def plot_boxes_to_image(image_pil, tgt):
     H, W = tgt["size"]
@@ -95,10 +97,6 @@ def get_grounding_output(model, image, caption, box_threshold, text_threshold=No
     logits = outputs["pred_logits"].sigmoid()[0]  # (nq, 256)
     boxes = outputs["pred_boxes"][0]  # (nq, 4)
 
-    print("Output keys: ", outputs.keys())
-    print("logits size: ", outputs["pred_logits"].size())
-    print("boxes size: ", outputs["pred_boxes"].size())
-    print("sigmoid logits size: ", logits.size())
     # filter output
     if token_spans is None:
         logits_filt = logits.cpu().clone()
@@ -107,22 +105,13 @@ def get_grounding_output(model, image, caption, box_threshold, text_threshold=No
         logits_filt = logits_filt[filt_mask]  # num_filt, 256
         boxes_filt = boxes_filt[filt_mask]  # num_filt, 4
 
-        print("Filtered logits: ", logits_filt.size())
-        print("Filtered boxes: ", boxes_filt.size())
-        
         # get phrase
         tokenlizer = model.tokenizer
         tokenized = tokenlizer(caption)
-        print("Caption: ", caption)
-        print("Tokenized: ", tokenized)
         # build pred
         pred_phrases = []
         for logit, box in zip(logits_filt, boxes_filt):
             pred_phrase = get_phrases_from_posmap(logit > text_threshold, tokenized, tokenlizer)
-            # print("Loop ...")
-            # print("    Logit: ", logit)
-            # print("    Box: ", box)
-            # print("    phrase: ", pred_phrase)
             if with_logits:
                 pred_phrases.append(pred_phrase + f"({str(logit.max().item())[:4]})")
             else:
@@ -159,6 +148,37 @@ def get_grounding_output(model, image, caption, box_threshold, text_threshold=No
     return boxes_filt, pred_phrases
 
 
+def save_results(pred_results, save_pth, save_label = None):
+    H, W = pred_results["size"]
+    boxes = pred_results["boxes"]
+    labels = pred_results["labels"]
+    box_lines = []
+    max_score = -1.0
+    for i, lbl in enumerate(labels):
+        lbl_cls = lbl.split("(")[0]
+        lbl_score = float(lbl.split("(")[1][:-1])
+        # print("lbl_cls: ", lbl_cls)
+        if save_label is not None:
+            if save_label not in lbl:
+                continue
+        lbl_box = boxes[i]
+        box_center_x = lbl_box[0] * W
+        box_center_y = lbl_box[1] * H
+        box_width = lbl_box[2] * W
+        box_height = lbl_box[3] * H
+        if save_label is None:
+            box_ln = "{} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}\n".format(
+                lbl_cls, box_center_x, box_center_y, box_width, box_height, lbl_score
+            )
+        else:
+            box_ln = "{} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}\n".format(
+                save_label, box_center_x, box_center_y, box_width, box_height, lbl_score
+            )
+        box_lines.append(box_ln)
+    with open(save_pth, 'w') as f:
+        f.writelines(box_lines)
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser("Grounding DINO example", add_help=True)
@@ -166,13 +186,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint_path", "-p", type=str, required=True, help="path to checkpoint file"
     )
-    parser.add_argument("--image_path", "-i", type=str, required=True, help="path to image file")
+    parser.add_argument("--image_dir", "-i", type=str, required=True, help="path to image directory")
+    parser.add_argument("--result_dir", "-r", type=str, required=True, help="path to result directory")
+
+    # parser.add_argument("--image_path", "-i", type=str, required=True, help="path to image file")
     parser.add_argument("--text_prompt", "-t", type=str, required=True, help="text prompt")
     parser.add_argument(
         "--output_dir", "-o", type=str, default="outputs", required=True, help="output directory"
     )
 
-    parser.add_argument("--box_threshold", type=float, default=0.3, help="box threshold")
+    parser.add_argument("--box_threshold", type=float, default=0.35, help="box threshold")
     parser.add_argument("--text_threshold", type=float, default=0.25, help="text threshold")
     parser.add_argument("--token_spans", type=str, default=None, help=
                         "The positions of start and end positions of phrases of interest. \
@@ -187,43 +210,52 @@ if __name__ == "__main__":
     # cfg
     config_file = args.config_file  # change the path of the model config file
     checkpoint_path = args.checkpoint_path  # change the path of the model
-    image_path = args.image_path
+    image_dir = args.image_dir
     text_prompt = args.text_prompt
     output_dir = args.output_dir
+    result_dir = args.result_dir
     box_threshold = args.box_threshold
     text_threshold = args.text_threshold
     token_spans = args.token_spans
 
     # make dir
+    print("result dir: ", result_dir)
     os.makedirs(output_dir, exist_ok=True)
-    # load image
-    image_pil, image = load_image(image_path)
+    os.makedirs(result_dir, exist_ok=True)
+
     # load model
     model = load_model(config_file, checkpoint_path, cpu_only=args.cpu_only)
-
-    # visualize raw image
-    image_pil.save(os.path.join(output_dir, "raw_image.jpg"))
 
     # set the text_threshold to None if token_spans is set.
     if token_spans is not None:
         text_threshold = None
         print("Using token_spans. Set the text_threshold to None.")
 
+    # load image
+    if os.path.isdir(args.image_dir):
+        image_list = sorted(os.listdir(args.image_dir))
+        for i, image_fn in enumerate(tqdm(image_list)):
+            image_path = os.path.join(args.image_dir, image_fn)
+            image_pil, image = load_image(image_path)
 
-    # run model
-    boxes_filt, pred_phrases = get_grounding_output(
-        # model, image, text_prompt, box_threshold, text_threshold, cpu_only=args.cpu_only, token_spans=eval(token_spans)
-        model, image, text_prompt, box_threshold, text_threshold, cpu_only=args.cpu_only, token_spans=token_spans
+            # run model
+            boxes_filt, pred_phrases = get_grounding_output(
+                model, image, text_prompt, box_threshold, text_threshold, 
+                cpu_only=args.cpu_only, token_spans=token_spans
+            )
 
-    )
+            # visualize pred
+            size = image_pil.size
+            pred_dict = {
+                "boxes": boxes_filt,
+                "size": [size[1], size[0]],  # H,W
+                "labels": pred_phrases,
+            }
 
-    # visualize pred
-    size = image_pil.size
-    pred_dict = {
-        "boxes": boxes_filt,
-        "size": [size[1], size[0]],  # H,W
-        "labels": pred_phrases,
-    }
-    # import ipdb; ipdb.set_trace()
-    image_with_box = plot_boxes_to_image(image_pil, pred_dict)[0]
-    image_with_box.save(os.path.join(output_dir, "pred.jpg"))
+            # save preds
+            save_pth = os.path.join(result_dir, image_fn+".txt")
+            save_results(pred_dict, save_pth)
+
+            # import ipdb; ipdb.set_trace()
+            image_with_box = plot_boxes_to_image(image_pil, pred_dict)[0]
+            image_with_box.save(os.path.join(output_dir, image_fn))
