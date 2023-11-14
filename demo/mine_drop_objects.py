@@ -417,10 +417,8 @@ if __name__ == "__main__":
     if os.path.isdir(args.image_dir):
         image_list = sorted(os.listdir(args.image_dir))
         for i, image_fn in enumerate(tqdm(image_list)):
-            # if i != 2:
-            #     continue
-            # if image_fn != "00000849.jpg":
-            #     continue
+            if not (image_fn.endswith(".jpg") or image_fn.endswith(".png")):
+                continue
             image_path = os.path.join(args.image_dir, image_fn)
             # print("Image pth: ", image_path)
             image_pil, image = load_image(image_path)            
