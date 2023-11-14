@@ -426,7 +426,7 @@ if __name__ == "__main__":
                 model, image, text_prompt_list, box_threshold_list, text_threshold, 
                 cpu_only=args.cpu_only, 
             )
-
+            has_drop_object = False
             key_cls = []
             key_phrases = []
             key_boxes = []
@@ -443,19 +443,22 @@ if __name__ == "__main__":
                                 key_boxes = torch.cat((key_boxes, prompt_boxes[i, :].view(-1, 4)), dim=0)
                                 key_phrases.append(pred_phrase)
                                 key_cls.append(key_text)
+                                if key_text == "dropped object":
+                                    has_drop_object = True
                                 # continue
             # print("Key cls: ", key_cls)
             # print("Key boxes: ", key_boxes)
             # print("Key phrases: ", key_phrases)
 
             size = image_pil.size
-            pred_all_dict = {
-                "boxes": key_boxes,
-                "size": [size[1], size[0]],  # H,W
-                "labels": key_phrases,
-            }
-            image_with_all_box = plot_boxes_to_image(image_pil, pred_all_dict)[0]
-            image_with_all_box.save(os.path.join(output_plot_all_dir, image_fn))
+            if has_drop_object:
+                pred_all_dict = {
+                    "boxes": key_boxes,
+                    "size": [size[1], size[0]],  # H,W
+                    "labels": key_phrases,
+                }
+                image_with_all_box = plot_boxes_to_image(image_pil, pred_all_dict)[0]
+                image_with_all_box.save(os.path.join(output_plot_all_dir, image_fn))
 
             # Filter the false drop objects
             reserve_ids = filter_drop_objects(key_boxes, key_cls)
