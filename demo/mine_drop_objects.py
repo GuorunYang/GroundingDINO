@@ -320,12 +320,14 @@ def filter_drop_objects(object_bboxes, object_cls,
         if min_obj_id != -1:
             for obj_id in obj_list:
                 obj_cls = object_cls[obj_id]
+                # print("Other obj cls: ", obj_cls)
                 if obj_cls == "dropped object":
                     continue
-                if obj_cls == "arrow" or obj_cls == "cone" or obj_cls == "painting":
+                if obj_cls == "arrow" or obj_cls == "cone" or obj_cls == "painting" or obj_cls == "car" or obj_cls == "barrel":
                     valid_flag = False
         if valid_flag:
             reserve_indices.append(min_obj_id)
+    # print("reserve indices: ", reserve_indices)
     return reserve_indices
 
 
@@ -362,7 +364,7 @@ def save_results(pred_results, save_pth, save_label = None):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser("Grounding DINO example", add_help=True)
+    parser = argparse.ArgumentParser("Mine Dropped Objects", add_help=True)
     parser.add_argument("--config_file", "-c", type=str, 
                         default="groundingdino/config/GroundingDINO_SwinB_cfg.py",
                         help="path to config file")
@@ -388,10 +390,12 @@ if __name__ == "__main__":
 
     output_plot_drop_dir = os.path.join(args.output_dir, "plot_drop")
     output_plot_all_dir = os.path.join(args.output_dir, "plot_all")
-    output_result_dir = os.path.join(args.output_dir, "result")
+    output_result_drop_dir = os.path.join(args.output_dir, "result_drop")
+    output_result_all_dir = os.path.join(args.output_dir, "result_all")
     os.makedirs(output_plot_drop_dir, exist_ok=True)
     os.makedirs(output_plot_all_dir, exist_ok=True)
-    os.makedirs(output_result_dir, exist_ok=True)
+    os.makedirs(output_result_drop_dir, exist_ok=True)
+    os.makedirs(output_result_all_dir, exist_ok=True)
 
     # define the text prompt
     text_prompt_dict = {
@@ -399,6 +403,10 @@ if __name__ == "__main__":
         "there is an arrow on the road" : 0.45,
         "there is a cone on the road" : 0.50,
         "there is a white painting on the road" : 0.35,
+        "there is a car on the road" : 0.40,
+        "there is a safety barrel on the road" : 0.50,
+        # "there is a crack on the road" : 0.20,
+        # "there is a fissure on the road" : 0.20, 
     }
     text_prompt_list = [k for k, v in text_prompt_dict.items()]
     box_threshold_list = [v for k, v in text_prompt_dict.items()]
@@ -407,6 +415,10 @@ if __name__ == "__main__":
         "arrow",
         "cone",
         "painting",
+        "car",
+        "barrel",
+        # "crack",
+        # "fissure",
         # "road",
     ]
 
@@ -421,9 +433,9 @@ if __name__ == "__main__":
                 continue
             image_path = os.path.join(args.image_dir, image_fn)
             # print("Image pth: ", image_path)
-            image_pil, image = load_image(image_path)            
+            image_pil, image = load_image(image_path)
             boxes_filt_list, pred_phrases_list = get_multiple_grounding_output(
-                model, image, text_prompt_list, box_threshold_list, text_threshold, 
+                model, image, text_prompt_list, box_threshold_list, text_threshold,
                 cpu_only=args.cpu_only, 
             )
             has_drop_object = False
@@ -457,7 +469,12 @@ if __name__ == "__main__":
                     "size": [size[1], size[0]],  # H,W
                     "labels": key_phrases,
                 }
-                image_with_all_box = plot_boxes_to_image(image_pil, pred_all_dict)[0]
+                # save all preds
+                save_all_pth = os.path.join(output_result_all_dir, image_fn+".txt")
+                save_results(pred_all_dict, save_all_pth)
+                # plot all image
+                plot_all_img = image_pil.copy()
+                image_with_all_box = plot_boxes_to_image(plot_all_img, pred_all_dict)[0]
                 image_with_all_box.save(os.path.join(output_plot_all_dir, image_fn))
 
             # Filter the false drop objects
@@ -481,11 +498,11 @@ if __name__ == "__main__":
                     "size": [size[1], size[0]],  # H,W
                     "labels": reserve_phrases,
                 }
-                # save preds
-                save_pth = os.path.join(output_result_dir, image_fn+".txt")
-                save_results(pred_drop_dict, save_pth)
-
-                # import ipdb; ipdb.set_trace()
-
-                image_with_drop_box = plot_boxes_to_image(image_pil, pred_drop_dict)[0]
+                # print("Pred drop dict: ", pred_drop_dict)
+                # save drop preds
+                save_drop_pth = os.path.join(output_result_drop_dir, image_fn+".txt")
+                save_results(pred_drop_dict, save_drop_pth)
+                # plot drop image
+                plot_drop_img = image_pil.copy()
+                image_with_drop_box = plot_boxes_to_image(plot_drop_img, pred_drop_dict)[0]
                 image_with_drop_box.save(os.path.join(output_plot_drop_dir, image_fn))
