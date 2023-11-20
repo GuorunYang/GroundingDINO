@@ -182,10 +182,12 @@ def save_results(pred_results, save_pth, save_label = None):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser("Grounding DINO example", add_help=True)
-    parser.add_argument("--config_file", "-c", type=str, required=True, help="path to config file")
-    parser.add_argument(
-        "--checkpoint_path", "-p", type=str, required=True, help="path to checkpoint file"
-    )
+    parser.add_argument("--config_file", "-c", type=str, 
+                        default="groundingdino/config/GroundingDINO_SwinB_cfg.py",
+                        help="path to config file")
+    parser.add_argument("--checkpoint_path", "-p", type=str,
+                        default="./weights/groundingdino_swinb_cogcoor.pth",
+                        help="path to checkpoint file")
     parser.add_argument("--image_dir", "-i", type=str, required=True, help="path to image directory")
     parser.add_argument("--result_dir", "-r", type=str, required=True, help="path to result directory")
 
