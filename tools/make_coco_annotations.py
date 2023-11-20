@@ -2,6 +2,8 @@ import os
 import json
 import numpy as np
 from tqdm import tqdm
+import cv2
+import PIL
 from PIL import Image, ImageDraw, ImageFont
 import fiftyone as fo
 # from fiftyone.utils.coco import COCODetectionDatasetExporter
@@ -16,6 +18,53 @@ def check_image_size(image_dir):
             print("Image pth : {} width: {}, height: {}".format(
                 image_path, image_width, image_height
             ))
+
+
+def resize_image(src_dir, des_dir):
+    image_list = sorted(os.listdir(src_dir))
+    os.makedirs(des_dir, exist_ok=True)
+    for i, image_fn in enumerate(tqdm(image_list, desc="Resize images")):
+        # Robin_20230802
+        # Robin_20230816
+        # Messi_20230802
+        src_pth = os.path.join(src_dir, image_fn)
+        des_pth = os.path.join(des_dir, image_fn)
+        src_image = cv2.imread(src_pth)
+        image_width, image_height = src_image.shape[1], src_image.shape[0]
+        if image_width == 3840 and image_height == 2160:
+            des_size = (int(image_width / 2), int(image_height / 2))
+            des_image = cv2.resize(src_image, des_size, interpolation = cv2.INTER_LANCZOS4)
+            print()
+            cv2.imwrite(des_pth, des_image)
+
+
+def resize_results(src_dir, des_dir):
+    result_list = sorted(os.listdir(src_dir))
+    os.makedirs(des_dir, exist_ok=True)
+    for i, result_fn in enumerate(tqdm(result_list, desc="Resize results")):
+        if result_fn.startswith("Robin_20230816") \
+            or result_fn.startswith("Robin_20230802") \
+            or result_fn.startswith("Messi_20230802"):
+            src_result_pth = os.path.join(src_dir, result_fn)
+            des_result_pth = os.path.join(des_dir, result_fn)
+            src_lines = []
+            des_lines = []
+            with open(src_result_pth, 'r') as f:
+                src_lines = f.readlines()
+                for ln in src_lines:
+                    ln = ln.strip().rsplit(' ', 5)
+                    obj_cls = ln[0]
+                    cx, cy, w, h, score = float(ln[1]), float(ln[2]), float(ln[3]), float(ln[4]), float(ln[5])
+                    cx /= 2.0
+                    cy /= 2.0
+                    w /= 2.0
+                    h /= 2.0
+                    new_ln = "{} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}\n".format(
+                        obj_cls, cx, cy, w, h, score
+                    )
+                    des_lines.append(new_ln)
+            with open(des_result_pth, 'w') as f:
+                f.writelines(des_lines)
 
 
 def get_unique_list(list_pth):
@@ -165,9 +214,16 @@ def load_detections(result_pth):
         raise TypeError
     
     for i, result_name in enumerate(result_list):
+        # Robin_20230802
+        # Robin_20230816
+        # Messi_20230802
+        # seq_name = result_name.split('/')[-1]
+        # if not (seq_name.startswith("Robin_20230802") \
+        #     or seq_name.startswith("Robin_20230816") \
+        #     or seq_name.startswith("Messi_20230802")):
+        #     print("Ignore the frame: ", seq_name)
+        #     continue
         frame_name = result_name.rsplit('/')[-1].split('.')[0]
-        if frame_name.startswith("Robin_20230816") or frame_name.startswith("Robin_20230802"):
-            continue
         frame_results = []
         with open(result_name, 'r') as f:
             result_lines = f.readlines()
@@ -384,7 +440,15 @@ def main():
 
     image_width = 1920
     image_height = 1080
-    
+
+    ## resize images and results
+    # resize_image_dir = "/home/guorun.yang/data/cornercase/images_resize"
+    # resize_image(resize_image_dir, resize_dir)
+    # drop_resize_dir = "/home/guorun.yang/data/cornercase/round3_all_images/result_drop_resize"
+    # all_resize_dir = "/home/guorun.yang/data/cornercase/round3_all_images/result_all_resize"
+    # resize_results(drop_result_dir, drop_resize_dir)
+    # resize_results(all_result_dir, all_resize_dir)
+
     # Collect drop annotations
     drop_annos = collect_drop_annos(drop_list_pth, image_dir, all_detections)
     for image_pth, frame_drop_objs in drop_annos.items():
